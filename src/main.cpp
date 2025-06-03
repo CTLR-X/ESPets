@@ -11,8 +11,8 @@
 #define LV_VER_RES_MAX 480
 #define LVGL_BUFFER_SIZE (LV_HOR_RES_MAX * LV_VER_RES_MAX / 4)
 
-// LVGL v8.x uses lv_disp_draw_buf_t and lv_color_t
-static lv_disp_draw_buf_t draw_buf;
+// LVGL v9.x uses lv_display_t and lv_color_t
+static lv_display_t* display;
 static lv_color_t buf[LVGL_BUFFER_SIZE];
 
 // --- Global Objects ---
@@ -29,20 +29,22 @@ lv_obj_t* happinessBar;
 lv_obj_t* energyBar;
 lv_obj_t* cleanlinessBar;
 
-// --- LVGL Callbacks (Updated for LVGL v8.x API) ---
-void lv_disp_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
-    gfx.pushImage(area->x1, area->y1, area->x2 - area->x1 + 1, area->y2 - area->y1 + 1, (lgfx::rgb565_t*)color_p);
-    lv_disp_flush_ready(disp_drv);
+// --- LVGL Callbacks (Updated for LVGL v9.x API) ---
+void lv_disp_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
+    uint32_t w = (area->x2 - area->x1 + 1);
+    uint32_t h = (area->y2 - area->y1 + 1);
+    gfx.pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t*)px_map);
+    lv_display_flush_ready(disp);
 }
 
-void lv_touchpad_read_cb(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
+void lv_touchpad_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     uint16_t touchX, touchY;
     if (gfx.getTouch(&touchX, &touchY)) {
-        data->state = LV_INDEV_STATE_PR;
+        data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = touchX;
         data->point.y = touchY;
     } else {
-        data->state = LV_INDEV_STATE_REL;
+        data->state = LV_INDEV_STATE_RELEASED;
     }
 }
 
@@ -202,24 +204,15 @@ void setup() {
 
     lv_init();
 
-    // Initialize LVGL drawing buffers (v8.x style)
-    lv_disp_draw_buf_init(&draw_buf, buf, NULL, LVGL_BUFFER_SIZE);
+    // Initialize LVGL display (v9.x style)
+    display = lv_display_create(LV_HOR_RES_MAX, LV_VER_RES_MAX);
+    lv_display_set_flush_cb(display, lv_disp_flush_cb);
+    lv_display_set_buffers(display, buf, NULL, LVGL_BUFFER_SIZE, LV_DISPLAY_RENDER_MODE_PARTIAL);
 
-    // Register display driver (v8.x style)
-    static lv_disp_drv_t disp_drv;
-    lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = LV_HOR_RES_MAX;
-    disp_drv.ver_res = LV_VER_RES_MAX;
-    disp_drv.flush_cb = lv_disp_flush_cb;
-    disp_drv.draw_buf = &draw_buf;
-    lv_disp_drv_register(&disp_drv);
-
-    // Register input device driver (v8.x style)
-    static lv_indev_drv_t indev_drv;
-    lv_indev_drv_init(&indev_drv);
-    indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.read_cb = lv_touchpad_read_cb;
-    lv_indev_drv_register(&indev_drv);
+    // Register input device driver (v9.x style)
+    lv_indev_t* indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, lv_touchpad_read_cb);
 
     create_ui();
     update_ui_pet_status();

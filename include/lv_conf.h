@@ -2,7 +2,7 @@
 #define LV_CONF_H
 
 /* Use the correct include path for LVGL */
-#define LV_CONF_INCLUDE_SIMPLE 1
+#define LV_CONF_INCLUDE_SIMPLE 0
 #define LV_CONF_PATH "lv_conf.h"
 
 #include <stdint.h>
