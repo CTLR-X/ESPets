@@ -6,6 +6,8 @@ Bring a pixelated pal to life right on your desk with **ESPets**, an open-source
 
 ## Features (Planned/In Progress)
 
+For a detailed development plan, please see our [Project Roadmap](ROADMAP.md).
+
 * **Vibrant Visuals:** Leveraging the **Guition ESP32-S3-4848S040's 480x480 TFT display** for detailed pixel art animations, expressive pet reactions, and dynamic backgrounds that bring your desktop to life.
 * **Intuitive Touch Controls:** Interact seamlessly with your pet and navigate menus **exclusively using the integrated resistive touch screen**, making every interaction direct and engaging.
 * **Persistent Pet Logic:** Manage your pet's hunger, happiness, health, and discipline as it evolves and reacts to its environment and your care.
