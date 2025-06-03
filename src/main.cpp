@@ -1,131 +1,179 @@
 #include <Arduino.h>
-#include <Arduino_GFX_Library.h>
-#include <Wire.h>
-#include <TAMC_GT911.h>
+#include <LovyanGFX.h>
+#include <lvgl.h>
+#include "LGFX_ESP32S3_RGB_TFT_SPI_ST7701_GT911.h"
 
-// Display configuration
-#define GFX_BL 38
-Arduino_DataBus *bus = new Arduino_SWSPI(
-    GFX_NOT_DEFINED /* DC */, 39 /* CS */,
-    48 /* SCK */, 47 /* MOSI */, GFX_NOT_DEFINED /* MISO */);
-#define RGB_PANEL
-Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
-    18 /* DE */, 17 /* VSYNC */, 16 /* HSYNC */, 21 /* PCLK */,
-    11 /* R0 */, 12 /* R1 */, 13 /* R2 */, 14 /* R3 */, 0 /* R4 */,
-    8 /* G0 */, 20 /* G1 */, 3 /* G2 */, 46 /* G3 */, 9 /* G4 */, 10 /* G5 */,
-    4 /* B0 */, 5 /* B1 */, 6 /* B2 */, 7 /* B3 */, 15 /* B4 */,
-    1 /* hsync_polarity */, 10 /* hsync_front_porch */, 8 /* hsync_pulse_width */, 50 /* hsync_back_porch */,
-    1 /* vsync_polarity */, 10 /* vsync_front_porch */, 8 /* vsync_pulse_width */, 20 /* vsync_back_porch */,
-    0 /* pclk_active_neg */, 12000000 /* prefer_speed */, false /* useBigEndian */,
-    0 /* de_idle_high */, 0 /* pclk_idle_high */, 0 /* bounce_buffer_size_px */);
+/*Change to your screen resolution*/
+static const uint16_t screenWidth  = 480;
+static const uint16_t screenHeight = 480;
 
-// Rotation control - change this single value to adjust both display and touch
-#define DISPLAY_ROTATION 0  // 0: 0°, 1: 90°, 2: 180°, 3: 270°
+static lv_draw_buf_t draw_buf;
+static lv_color_t buf[2][ screenWidth * 10 ];
 
-Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
-    480 /* width */, 480 /* height */, rgbpanel, DISPLAY_ROTATION /* rotation */, true /* auto_flush */,
-    bus, GFX_NOT_DEFINED /* RST */, st7701_type9_init_operations, sizeof(st7701_type9_init_operations));
+LGFX gfx;
+lv_obj_t *led;
+boolean led_status = true;
 
-// GT911 Touch configuration
-#define TOUCH_GT911
-#define TOUCH_GT911_SCL 45
-#define TOUCH_GT911_SDA 19
-#define TOUCH_GT911_INT -1
-#define TOUCH_GT911_RST -1
-#define TOUCH_GT911_ROTATION ((DISPLAY_ROTATION + 1) % 4)  // Automatically match display rotation
-#define TOUCH_MAP_X1 480
-#define TOUCH_MAP_X2 0
-#define TOUCH_MAP_Y1 480
-#define TOUCH_MAP_Y2 0
-
-TAMC_GT911 ts = TAMC_GT911(TOUCH_GT911_SDA, TOUCH_GT911_SCL, TOUCH_GT911_INT, TOUCH_GT911_RST, max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2));
-
-int16_t last_x = -1;
-int16_t last_y = -1;
-
-void setup() {
-  Serial.begin(115200);
-  Serial.println("ESP32 RGB Panel Test");
-
-  // Initialize I2C for GT911
-  Wire.begin(TOUCH_GT911_SDA, TOUCH_GT911_SCL);
-  
-  // Initialize GT911
-  ts.begin();
-  ts.setRotation(TOUCH_GT911_ROTATION);  // Set the rotation
-  Serial.println("GT911 initialization completed");
-  
-  // Initialize display
-  if (!gfx->begin()) {
-    Serial.println("Display initialization failed!");
-    while (1);
-  }
-
-  pinMode(GFX_BL, OUTPUT);
-  digitalWrite(GFX_BL, HIGH);
-
-  // Set display parameters
-  gfx->fillScreen(BLACK);
-  gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  
-  // Draw a test pattern
-  gfx->fillRect(50, 50, 100, 100, 0x001F);  // Should be red (using blue value)
-  gfx->fillRect(200, 50, 100, 100, 0xF800); // Should be green (using red value)
-  gfx->fillRect(350, 50, 100, 100, 0x07E0); // Should be blue (using green value)
+/* Display flushing */
+void my_disp_flush( lv_display_t *disp, const lv_area_t *area, uint8_t *color_p )
+{
+    if (gfx.getStartCount() == 0)
+    {   // Processing if not yet started
+        gfx.startWrite();
+    }
+    gfx.pushImage( area->x1
+                 , area->y1
+                 , area->x2 - area->x1 + 1
+                 , area->y2 - area->y1 + 1
+                 , ( uint16_t* )color_p);
+    lv_display_flush_ready( disp );
 }
 
-void loop() {
-  // Read touch data from GT911
-  ts.read();
-  
-  if (ts.isTouched) {
-    // Get touch coordinates
-    uint16_t x = ts.points[0].x;
-    uint16_t y = ts.points[0].y;
-    
-    Serial.print("Raw coordinates - X: ");
-    Serial.print(x);
-    Serial.print(" Y: ");
-    Serial.println(y);
-    
-    // Map coordinates based on rotation
-    if (TOUCH_GT911_ROTATION == 0) {
-      x = map(x, 0, 480, TOUCH_MAP_X1, TOUCH_MAP_X2);
-      y = map(y, 0, 480, TOUCH_MAP_Y1, TOUCH_MAP_Y2);
-      
-      Serial.print("Mapped coordinates - X: ");
-      Serial.print(x);
-      Serial.print(" Y: ");
-      Serial.println(y);
+/*Read the touchpad*/
+void my_touchpad_read( lv_indev_t * indev_driver, lv_indev_data_t * data )
+{
+    uint16_t touchX, touchY;
+
+    data->state = LV_INDEV_STATE_REL;
+
+    if( gfx.getTouch( &touchX, &touchY ) )
+    {
+        data->state = LV_INDEV_STATE_PR;
+
+        /*Set the coordinates*/
+        data->point.x = touchX;
+        data->point.y = touchY;
     }
-    
-    // Draw a line from the last touch point to the current one
-    if (last_x != -1 && last_y != -1) {
-      Serial.print("Drawing line from (");
-      Serial.print(last_x);
-      Serial.print(",");
-      Serial.print(last_y);
-      Serial.print(") to (");
-      Serial.print(x);
-      Serial.print(",");
-      Serial.print(y);
-      Serial.println(")");
-      
-      gfx->drawLine(last_x, last_y, x, y, WHITE);
+}
+
+static void btn_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t *btn = (lv_obj_t*)lv_event_get_target(e);
+    if (code == LV_EVENT_CLICKED)
+    {
+        static uint8_t cnt = 0;
+        cnt++;
+
+        lv_obj_t *label = lv_obj_get_child(btn, 0);
+        lv_label_set_text_fmt(label, "COUNTER: %d", cnt);
+        if (led_status)
+        {
+            lv_led_off(led);
+            led_status = false;
+        } else {
+            lv_led_on(led);
+            led_status = true;
+        }
     }
+}
+
+void lv_example_btn(void)
+{
+    /*Init the style for the default state*/
+    static lv_style_t style;
+    lv_style_init(&style);
+
+    lv_style_set_radius(&style, 3);
+
+    lv_style_set_bg_opa(&style, LV_OPA_100);
+    lv_style_set_bg_color(&style, lv_palette_main(LV_PALETTE_BLUE));
+    lv_style_set_bg_grad_color(&style, lv_palette_darken(LV_PALETTE_BLUE, 2));
+    lv_style_set_bg_grad_dir(&style, LV_GRAD_DIR_VER);
+
+    lv_style_set_border_opa(&style, LV_OPA_40);
+    lv_style_set_border_width(&style, 2);
+    lv_style_set_border_color(&style, lv_palette_main(LV_PALETTE_GREY));
+
+    lv_style_set_shadow_width(&style, 8);
+    lv_style_set_shadow_color(&style, lv_palette_main(LV_PALETTE_GREY));
+    lv_style_set_shadow_ofs_y(&style, 8);
+
+    lv_style_set_outline_opa(&style, LV_OPA_COVER);
+    lv_style_set_outline_color(&style, lv_palette_main(LV_PALETTE_BLUE));
+
+    lv_style_set_text_color(&style, lv_color_white());
+    lv_style_set_pad_all(&style, 10);
+
+    /*Init the pressed style*/
+    static lv_style_t style_pr;
+    lv_style_init(&style_pr);
+
+    /*Add a large outline when pressed*/
+    lv_style_set_outline_width(&style_pr, 30);
+    lv_style_set_outline_opa(&style_pr, LV_OPA_TRANSP);
+
+    lv_style_set_translate_y(&style_pr, 5);
+    lv_style_set_shadow_ofs_y(&style_pr, 3);
+    lv_style_set_bg_color(&style_pr, lv_palette_darken(LV_PALETTE_BLUE, 2));
+    lv_style_set_bg_grad_color(&style_pr, lv_palette_darken(LV_PALETTE_BLUE, 4));
+
+    /*Add a transition to the outline*/
+    static lv_style_transition_dsc_t trans;
+    static lv_style_prop_t props[] = {LV_STYLE_OUTLINE_WIDTH, LV_STYLE_OUTLINE_OPA};
+    lv_style_transition_dsc_init(&trans, props, lv_anim_path_linear, 300, 0, NULL);
+
+    lv_style_set_transition(&style_pr, &trans);
+
+    lv_obj_t *btn1 = lv_btn_create(lv_scr_act());
+    lv_obj_remove_style_all(btn1); /*Remove the style coming from the theme*/
+    lv_obj_add_style(btn1, &style, 0);
+    lv_obj_add_style(btn1, &style_pr, LV_STATE_PRESSED);
+    lv_obj_set_size(btn1, 380, 120);
+    lv_obj_set_pos(btn1, 50, 120);
+
+    lv_obj_add_event_cb(btn1, btn_event_cb, LV_EVENT_ALL, NULL);
+
+    lv_obj_t *label = lv_label_create(btn1);
+    lv_label_set_text(label, "COUNTER");
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_center(label);
+}
+
+void setup()
+{
+    gfx.begin();
+
+    lv_init();
     
-    // Update last touch point
-    last_x = x;
-    last_y = y;
-  } else {
-    // Reset last touch point when touch is released
-    if (last_x != -1 || last_y != -1) {
-      Serial.println("Touch released");
-    }
-    last_x = -1;
-    last_y = -1;
-  }
-  
-  delay(10); // Small delay to prevent overwhelming the touch sensor
+    // Initialize draw buffer
+    lv_draw_buf_init(&draw_buf, 
+                     screenWidth, 
+                     screenHeight, 
+                     LV_COLOR_FORMAT_RGB565, 
+                     screenWidth * 10,
+                     buf[0],
+                     sizeof(buf[0]));
+
+    /*Initialize the display*/
+    static lv_display_t *disp = lv_display_create(screenWidth, screenHeight);
+    lv_display_set_flush_cb(disp, my_disp_flush);
+    lv_display_set_draw_buffers(disp, &draw_buf, NULL);
+
+    /*Initialize the input device driver*/
+    static lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, my_touchpad_read);
+
+    lv_obj_t *label2 = lv_label_create(lv_scr_act());
+    lv_label_set_long_mode(label2, LV_LABEL_LONG_SCROLL_CIRCULAR); /*Circular scroll*/
+    lv_obj_set_width(label2, 350);
+    lv_label_set_text(label2, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam eu molestie nibh. Nunc dignissim sem elementum imperdiet scelerisque. Fusce molestie eros sed orci maximus, vel iaculis quam facilisis. Donec dapibus enim elit, in luctus mauris cursus venenatis. Curabitur viverra ante id lectus suscipit, vitae molestie ");
+    lv_obj_set_style_text_color(label2, lv_color_hex(0xF00022), LV_PART_MAIN | LV_STATE_DEFAULT );
+    lv_obj_align(label2, LV_ALIGN_CENTER, 0, 40);
+
+    led = lv_led_create(lv_scr_act());
+    lv_obj_set_width(led, 50);
+    lv_obj_set_height(led, 50);
+    lv_obj_align(led, LV_ALIGN_CENTER, 0, 100);
+    lv_led_set_color(led, lv_color_hex(0x00FF00));
+    lv_led_on(led);
+
+    lv_example_btn();
+}
+
+void loop()
+{
+  lv_timer_handler(); /* let the GUI do its work */
+  delay(5);
 }
