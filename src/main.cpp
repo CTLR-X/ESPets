@@ -18,8 +18,12 @@ Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
     1 /* vsync_polarity */, 10 /* vsync_front_porch */, 8 /* vsync_pulse_width */, 20 /* vsync_back_porch */,
     0 /* pclk_active_neg */, 12000000 /* prefer_speed */, false /* useBigEndian */,
     0 /* de_idle_high */, 0 /* pclk_idle_high */, 0 /* bounce_buffer_size_px */);
+
+// Rotation control - change this single value to adjust both display and touch
+#define DISPLAY_ROTATION 0  // 0: 0°, 1: 90°, 2: 180°, 3: 270°
+
 Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
-    480 /* width */, 480 /* height */, rgbpanel, 1 /* rotation */, true /* auto_flush */,
+    480 /* width */, 480 /* height */, rgbpanel, DISPLAY_ROTATION /* rotation */, true /* auto_flush */,
     bus, GFX_NOT_DEFINED /* RST */, st7701_type9_init_operations, sizeof(st7701_type9_init_operations));
 
 // GT911 Touch configuration
@@ -28,7 +32,7 @@ Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
 #define TOUCH_GT911_SDA 19
 #define TOUCH_GT911_INT -1
 #define TOUCH_GT911_RST -1
-#define TOUCH_GT911_ROTATION 2  // 0: 0°, 1: 90°, 2: 180°, 3: 270°
+#define TOUCH_GT911_ROTATION ((DISPLAY_ROTATION + 1) % 4)  // Automatically match display rotation
 #define TOUCH_MAP_X1 480
 #define TOUCH_MAP_X2 0
 #define TOUCH_MAP_Y1 480
