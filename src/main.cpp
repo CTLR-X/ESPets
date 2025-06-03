@@ -37,6 +37,6 @@ void loop()
     if (gfx.getTouch(&x, &y)) {
         // Draw a small circle where touched
         gfx.fillCircle(x, y, 5, TFT_YELLOW);
-        delay(50);  // Small delay to prevent too many touch points
+        delay(1);  // Small delay to prevent too many touch points
     }
 }
