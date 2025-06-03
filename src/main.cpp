@@ -3,10 +3,6 @@
 #include "LGFX_ESP32S3_RGB_TFT_SPI_ST7701_GT911.h"
 #include "Pet.hpp"
 
-// Forward declarations
-void drawStaticElements();
-void drawPetStatus();
-
 LGFX gfx;
 Pet myPet("Buddy");
 
@@ -66,17 +62,9 @@ void drawButton(const Button& btn, bool pressed = false) {
     gfx.print(btn.label);
 }
 
+// Function to draw static UI elements
 void drawStaticElements() {
-    // Clear screen with a test pattern
-    gfx.fillScreen(TFT_BLACK);
-    
-    // Draw a test pattern in the background
-    for(int i = 0; i < gfx.width(); i += 20) {
-        gfx.drawFastVLine(i, 0, gfx.height(), TFT_DARKGREY);
-    }
-    
-    // Draw labels with background
-    gfx.fillRect(0, 0, gfx.width(), 80, TFT_BLACK);
+    // Draw labels
     gfx.setCursor(10, 10);
     gfx.setTextColor(TFT_WHITE);
     gfx.setTextSize(2);
@@ -86,16 +74,32 @@ void drawStaticElements() {
     gfx.setCursor(10, 40);
     gfx.print("State: ");
     
-    // Draw static parts of status bars with background
+    // Draw static parts of status bars with initial values
     int y = 100;
     int barWidth = 200;
     
     const char* labels[] = {"Health:", "Hunger:", "Happy:", "Energy:", "Clean:"};
+    uint16_t colors[] = {TFT_RED, TFT_ORANGE, TFT_YELLOW, TFT_GREEN, TFT_BLUE};
+    uint8_t values[] = {
+        myPet.getHealth(),
+        myPet.getHunger(),
+        myPet.getHappiness(),
+        myPet.getEnergy(),
+        myPet.getCleanliness()
+    };
+    
     for(int i = 0; i < 5; i++) {
-        gfx.fillRect(0, y + (i * 30) - 2, gfx.width(), 24, TFT_BLACK);  // Clear area with margin
         gfx.setCursor(10, y + (i * 30));
         gfx.print(labels[i]);
+        
+        // Draw background
         gfx.fillRect(100, y + (i * 30), barWidth, 20, TFT_DARKGREY);
+        
+        // Draw initial value
+        int width = (barWidth * values[i]) / 100;
+        if (width > 0) {
+            gfx.fillRect(100, y + (i * 30), width, 20, colors[i]);
+        }
     }
     
     // Draw all buttons
@@ -104,37 +108,46 @@ void drawStaticElements() {
     }
 }
 
-// Function to update a single status bar
-void updateStatusBar(int index, uint8_t value, uint8_t& previous, uint16_t color) {
-    // Always draw the bar, regardless of value change
-    int16_t y = 100 + (index * 30);
-    int16_t width = (200 * value) / 100;
-    
-    // Use a single fill operation for the background
-    gfx.fillRect(100, y, 200, 20, TFT_DARKGREY);
-    
-    // Draw the new value if it's greater than 0
-    if (width > 0) {
-        gfx.fillRect(100, y, width, 20, color);
-    }
-    
-    previous = value;
-}
-
 // Function to update dynamic UI elements
 void drawPetStatus() {
-    // Update state text with a single operation
-    gfx.fillRect(100, 40, 200, 20, TFT_BLACK);
-    gfx.setCursor(100, 40);
-    gfx.setTextColor(TFT_WHITE);
-    gfx.print((int)myPet.getState());
+    // Only update state text if it changed
+    if (previousStatus.state != myPet.getState()) {
+        gfx.fillRect(100, 40, 200, 20, TFT_BLACK);  // Clear previous state
+        gfx.setCursor(100, 40);
+        gfx.setTextColor(TFT_WHITE);
+        gfx.print((int)myPet.getState());
+        previousStatus.state = myPet.getState();
+    }
     
-    // Update each status bar
-    updateStatusBar(0, myPet.getHealth(), previousStatus.health, TFT_RED);
-    updateStatusBar(1, myPet.getHunger(), previousStatus.hunger, TFT_ORANGE);
-    updateStatusBar(2, myPet.getHappiness(), previousStatus.happiness, TFT_YELLOW);
-    updateStatusBar(3, myPet.getEnergy(), previousStatus.energy, TFT_GREEN);
-    updateStatusBar(4, myPet.getCleanliness(), previousStatus.cleanliness, TFT_BLUE);
+    // Update status bars only if values changed
+    int y = 100;
+    int barWidth = 200;
+    
+    // Helper function to update a single bar
+    auto updateBar = [&](uint8_t current, uint8_t& previous, int yPos, uint16_t color) {
+        if (current != previous) {
+            // Calculate new width
+            int newWidth = (barWidth * current) / 100;
+            int oldWidth = (barWidth * previous) / 100;
+            
+            // If new value is smaller, clear the excess
+            if (newWidth < oldWidth) {
+                gfx.fillRect(100 + newWidth, yPos, oldWidth - newWidth, 20, TFT_DARKGREY);
+            }
+            // If new value is larger, fill the new area
+            if (newWidth > oldWidth) {
+                gfx.fillRect(100 + oldWidth, yPos, newWidth - oldWidth, 20, color);
+            }
+            previous = current;
+        }
+    };
+    
+    // Update each bar
+    updateBar(myPet.getHealth(), previousStatus.health, y, TFT_RED);
+    updateBar(myPet.getHunger(), previousStatus.hunger, y + 30, TFT_ORANGE);
+    updateBar(myPet.getHappiness(), previousStatus.happiness, y + 60, TFT_YELLOW);
+    updateBar(myPet.getEnergy(), previousStatus.energy, y + 90, TFT_GREEN);
+    updateBar(myPet.getCleanliness(), previousStatus.cleanliness, y + 120, TFT_BLUE);
 }
 
 // Function to check if a point is inside a button
@@ -143,8 +156,7 @@ bool isPointInButton(int16_t x, int16_t y, const Button& btn) {
            y >= btn.y && y < btn.y + btn.height;
 }
 
-void setup()
-{
+void setup() {
     Serial.begin(115200);
     Serial.println("Starting...");
     
@@ -152,26 +164,14 @@ void setup()
     gfx.setRotation(0);
     gfx.setBrightness(128);
     
-    // Test display
-    gfx.fillScreen(TFT_RED);
-    delay(500);
-    gfx.fillScreen(TFT_GREEN);
-    delay(500);
-    gfx.fillScreen(TFT_BLUE);
-    delay(500);
-    gfx.fillScreen(TFT_BLACK);
-    
     // Initial display setup
     gfx.setTextSize(2);
     gfx.setTextColor(TFT_WHITE);
     
-    // Clear screen with a single operation
+    // Clear screen
     gfx.fillScreen(TFT_BLACK);
     
-    // Draw static elements
-    drawStaticElements();
-    
-    // Initialize previous status with current values
+    // Initialize previous status
     previousStatus.state = myPet.getState();
     previousStatus.health = myPet.getHealth();
     previousStatus.hunger = myPet.getHunger();
@@ -179,14 +179,16 @@ void setup()
     previousStatus.energy = myPet.getEnergy();
     previousStatus.cleanliness = myPet.getCleanliness();
     
+    // Draw initial static elements
+    drawStaticElements();
+    
     // Force initial display of all values
     drawPetStatus();
     
     Serial.println("Setup complete");
 }
 
-void loop()
-{
+void loop() {
     unsigned long currentTime = millis();
     
     // Update pet state and display at regular intervals
